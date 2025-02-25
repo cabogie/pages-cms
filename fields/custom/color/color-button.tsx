@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import "./color-button.css"
 
 const rgbaToHexString = (rgba: RGBColor) => {
-    // return rgba2hexa(rgba.r, rgba.g, rgba.b, rgba.a ?? 1)
     if (rgba.a == 1) {
         return rgb2hex(rgba.r, rgba.g, rgba.b)
     } else {
