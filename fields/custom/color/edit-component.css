@@ -1,0 +1,12 @@
+.color-field {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 5px;
+}
+
+.color-button {
+    aspect-ratio: 1 / 1;
+    min-height: 2rem;
+}

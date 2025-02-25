@@ -1,0 +1,40 @@
+
+
+/* .swatch {
+    --tw-ring-color: hsl(var(--ring));
+    --tw-ring-offset-width: 2px;
+} */
+
+.color-button {
+    position: relative;
+}
+
+.color-button .popover {
+    position: absolute;
+    z-index: 2;
+    background-color: red;
+    margin-top: 10px;
+}
+
+.color-button .cover {
+    position: fixed;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    left: 0px;
+}
+
+.color-button .swatch {
+    width: 100%;
+    height: 100%;
+    display: block;
+    padding: 0;
+    border: 1px solid hsl(var(--input));
+    overflow: hidden;
+    border-radius: 100px;
+    position: relative;
+}
+
+.color-button .swatch.picking {
+    border: 2px solid hsl(var(--ring));
+}
