@@ -29,21 +29,20 @@ const StringToColor = (colorString: string, defaultRgb = { r: 255, g: 255, b: 25
 
 function ColorButton(props: {
     value: string,
-    ref: React.Ref<HTMLInputElement>,
     className?: string,
-    onChange: (colorString: string) => void
+    onChange?: (colorString: string) => void
 }) {
 
     const [showPicker, setShowPicker] = useState(false);
     const [colorRgba, setColorRgba] = useState(StringToColor(props.value));
 
-    const togglePicker = () => setShowPicker(!showPicker);
+    const togglePicker = () => { if (props.onChange) setShowPicker(!showPicker); }
     const closePicker = () => setShowPicker(false);
 
     const handleChange = (newColor: ColorResult) => {
         var newString = rgbaToHexString(newColor.rgb);
         setColorRgba(newColor.rgb);
-        props.onChange(newString);
+        props.onChange?.(newString);
     };
 
     useEffect(() => {

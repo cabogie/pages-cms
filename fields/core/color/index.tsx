@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Field } from "@/types/field";
 import { EditComponent } from "./edit-component";
+import { ViewComponent } from "./view-component";
 
 import StringToColor from 'string-color-converter';
 
@@ -17,4 +18,6 @@ const schema = (field: Field) => {
     return z.literal("").refine(() => !field.required, { message: "This field is required" }).or(validColorSchema);
 };
 
-export { schema, EditComponent, defaultValue };
+const supportsList = false;
+
+export { schema, EditComponent, ViewComponent, defaultValue, supportsList };
