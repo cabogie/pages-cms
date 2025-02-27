@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { ChromePicker, ColorResult, RGBColor } from 'react-color'
+
+
 import _StringToColor, { rgb2hex, rgba2hexa } from 'string-color-converter';
 import { cn } from '@/lib/utils';
 
 import "./color-button.css"
+import ColorPicker from './color-picker';
 
 const rgbaToHexString = (rgba: RGBColor) => {
     if (rgba.a == 1) {
@@ -62,7 +65,10 @@ function ColorButton(props: {
             {showPicker ?
                 <div className='popover'>
                     <div className="cover" onClick={closePicker} />
-                    <ChromePicker color={colorRgba} onChange={handleChange} />
+                    <div>
+
+                    </div>
+                    <ColorPicker color={colorRgba} onChange={handleChange} />
                 </div> : null}
 
         </div>
