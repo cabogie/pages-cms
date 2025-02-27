@@ -13,40 +13,61 @@ import {
 import { fetchPagesCmsCollection } from "./fetch-pages-cms-collection";
 import { Skeleton } from "@/components/ui/skeleton";
 
-interface OptionData { data: any, key: string, label: (string | React.JSX.Element)[] }
+interface OptionData { value: any, key: string, label: (string | React.JSX.Element)[] }
+
+const getHighlightedText = (text: string, highlight: string) => {
+    // Split text on highlight term, include term itself into parts, ignore case
+    const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+    return parts.map(part =>
+        part.toLowerCase() === highlight.toLowerCase() ?
+            <span className="text-clip text-xs opacity-40">{part}</span> :
+            <span className="text-clip  text-xs opacity-30">{part}</span>
+    );
+}
+
 
 // if the option is a collection, map the collection page paths
-const GetCollectionOptions = async (args: { name: string, path: string, recursive: boolean }): Promise<OptionData[] | undefined> => {
+const GetCollectionOptions = async (args: { name: string, path?: string, labelKey: string, recursive: boolean }): Promise<OptionData[] | undefined> => {
 
-    if (!args.name || !args.path) return;
+    if (!args.name) return;
 
-    var newData = await fetchPagesCmsCollection(
-        args.name,
-        args.path,
-        args.recursive
-    )
+    var newData = await fetchPagesCmsCollection({
+        collectionName: args.name,
+        path: args.path,
+        recursive: args.recursive
+    })
 
     return newData?.map((o) => {
-        let nicePath = o.path.replace(args.path + "/", "")
-        let readablePathPrefix = nicePath.replace(o.name, "")
+        const relativeDirLabel = o.relativeCollectionPath + (o.relativeCollectionPath.length > 0 ? "/" : "");
         return {
-            data: o.path,
+            value: o.path,
             key: o.path,
-            label: [`${readablePathPrefix}`, <b>{` ${o.object?.title ?? o.name}`} </b>]
+            label: [
+                <p className="text-left">
+                    <span className="capitalize opacity-70">{relativeDirLabel.replace("/", "/ ")}</span>
+                    <b className="pr-4 ">{` ${o.object?.[args.labelKey] ?? o.name}`} </b>
+                    {getHighlightedText(o.path, o.relativePath)}
+                </p>,
+            ],
+            chevron: getHighlightedText(o.path, o.relativePath)
         };
     })
 }
 
 const GetValueOptions = (options: any | undefined): OptionData[] => {
     return options?.values?.map((o: any) => {
-        // if the options are keyed values and not just strings, map the structured data as yaml
+        // if the option is {value: <something>, label: <something>}:
+        //   - if the value is keyed values: 
+        //      - map that structured data as yaml
+        //   - otherwise: 
+        //      - just use the string value
         if (typeof o === "object") return {
-            data: YAML.stringify(o),
+            value: typeof o.value === "object" ? YAML.stringify(o.value) : o.value,
             key: o.value,
             label: [o.label]
         };
         else return {
-            data: o,
+            value: o,
             key: o,
             label: [o]
         };
@@ -90,7 +111,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
     const [selection, setSelection] = useState(value ?? undefined);
 
     const dataChildren = data?.map((o) => {
-        return <SelectItem key={o.key} value={o.data} children={o.label} />
+        return <SelectItem key={o.key} value={o.value} children={o.label} />
     }) ?? []
 
     const onSelect = (selectionString: string) => {
@@ -98,12 +119,11 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
         setSelection(selectionString);
     }
 
-    const loadingMessage = ""; // <div className="p-2">Loading options...</div>
     return (
         isLoading ?
-            <Skeleton className="h-10 max-h-96" children={[loadingMessage]} />
-            : <Select  onValueChange={onSelect} value={selection}>
-                <SelectTrigger>
+            <Skeleton className="h-10 max-h-96" />
+            : <Select onValueChange={onSelect} value={selection}>
+                <SelectTrigger className="h-10 max-h-96">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent children={dataChildren} />

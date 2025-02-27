@@ -1,23 +1,43 @@
 import { useConfig } from "@/contexts/config-context";
+import { getSchemaByName } from "@/lib/schema";
 import { Config } from "@/types/config";
 
+interface FetchArgs {
+    collectionName: string,
+    recursive?: boolean,
+    path?: string
+}
 
-export async function fetchPagesCmsCollection(collectionName: string, path: string, recursive: boolean): Promise<Record<string, any>[] | undefined> {
-    
+export async function fetchPagesCmsCollection(args: FetchArgs): Promise<Record<string, any>[] | undefined> {
+
     const { config } = useConfig();
 
     if (!config) {
-        console.error("No config.");
-        return
+        return Promise.reject('No config found.')
     }
 
-    return fetchPagesCmsCollectionWithConfig(config, collectionName, path, recursive);
+    const schema = getSchemaByName(config?.object, args.collectionName);
+
+    if (!schema) {
+        return Promise.reject(`Schema not found for "${args.collectionName}".`)
+    }
+
+    if (schema.type !== "collection") {
+        return Promise.reject(`"${args.collectionName}" is not a collection.`)
+    }
+
+    return fetchPagesCmsCollectionWithConfig(config, schema, args);
 }
 
 
-export async function fetchPagesCmsCollectionWithConfig(config: Config, collectionName: string, path: string, recursive: boolean): Promise<Record<string, any>[] | undefined> {
+export async function fetchPagesCmsCollectionWithConfig(config: Config, schema: any, args: FetchArgs): Promise<Record<string, any>[] | undefined> {
 
-    const apiPath = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collections/${encodeURIComponent(collectionName)}?path=${encodeURIComponent(path)}`
+    const baseCollectionPath = schema.path
+    const collectionName = schema.label
+
+    args.path = args.path ?? baseCollectionPath
+
+    const apiPath = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collections/${encodeURIComponent(args.collectionName)}?path=${encodeURIComponent(args.path ?? "")}`
 
     return fetch(apiPath).then(
         async (response) => {
@@ -32,14 +52,22 @@ export async function fetchPagesCmsCollectionWithConfig(config: Config, collecti
             var finalDataArray: Record<string, any>[] = [];
 
             for (var file of newDataArray) {
-                // FIXME: add to api (maybe it's already there?)
+
                 if (file.type === "dir") {
-                    if (recursive) {
+                    // AUDIT:FIXME: add this to api? maybe it's already there?
+                    if (args.recursive) {
                         finalDataArray = finalDataArray.concat(
-                            await fetchPagesCmsCollectionWithConfig(config, collectionName, file.path, true) ?? []
+                            await fetchPagesCmsCollectionWithConfig(config, schema, { collectionName: args.collectionName, path: file.path, recursive: true }) ?? []
                         )
                     }
                 } else {
+                    const dirPath = file.path.substring(0, file.path.lastIndexOf("/"));
+                    const relativeDirPath = dirPath.replace(baseCollectionPath, "")
+                    file.relativeCollectionPath = relativeDirPath.replace(/^\/|\/$/g, ''); // no leading /
+
+                    const relativePath = file.path.replace(baseCollectionPath, "")
+                    file.relativePath = relativePath.replace(/^\/|\/$/g, ''); // no leading /
+
                     finalDataArray.push(file)
                 }
             }
