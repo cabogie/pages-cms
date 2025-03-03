@@ -1,7 +1,14 @@
 "use client";
 
-import { forwardRef, useCallback, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BubbleMenu, EditorContent, useEditor } from "@tiptap/react";
+
+import CodeMirror, { EditorView } from '@uiw/react-codemirror';
+import { html } from "@codemirror/lang-html";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { languages } from "@codemirror/language-data";
+import { githubDark, githubLight } from "@uiw/codemirror-theme-github";
+
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
@@ -43,6 +50,7 @@ import {
   Bold,
   ChevronsUpDown,
   Code,
+  CodeXml,
   Heading1,
   Heading2,
   Heading3,
@@ -55,31 +63,67 @@ import {
   RemoveFormatting,
   Strikethrough,
   Table as TableIcon,
+  Type,
   Trash2,
-  Underline as UnderlineIcon
+  Underline as UnderlineIcon,
 } from "lucide-react";
+import { useTheme } from "next-themes";
+import { htmlToRawWithRelativeUrls, rawToHtmlWithRelativeUrls, RichTextValue } from ".";
+import { Config } from "@/types/config";
+
+enum EditMode {
+  Html, Raw
+}
+
+const ToggleEditMode = (mode: EditMode) => {
+  return mode == EditMode.Html ? EditMode.Raw : EditMode.Html;
+}
 
 const EditComponent = forwardRef((props: any, ref) => {
+
   const { config } = useConfig();
   const { isPrivate } = useRepo();
-  
-  const { value, onChange } = props;
-  const mediaDialogRef = useRef<MediaDialogHandle>(null); 
+
+  const { value, field } = props;
+
+  const mediaDialogRef = useRef<MediaDialogHandle>(null);
   const bubbleMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [isContentReady, setContentReady] = useState(false);
-  
+
   const [linkUrl, setLinkUrl] = useState("");
+
+  const getBlockIcon = (editor: any) => {
+    if (editor.isActive("heading", { level: 1 })) return <Heading1 className="h-4 w-4" />;
+    if (editor.isActive("heading", { level: 2 })) return <Heading2 className="h-4 w-4" />;
+    if (editor.isActive("heading", { level: 3 })) return <Heading3 className="h-4 w-4" />;
+    if (editor.isActive("bulletList")) return <List className="h-4 w-4" />;
+    if (editor.isActive("orderedList")) return <ListOrdered className="h-4 w-4" />;
+    if (editor.isActive("codeBlock")) return <Code className="h-4 w-4" />;
+    if (editor.isActive("blockquote")) return <Quote className="h-4 w-4" />;
+    return <Pilcrow className="h-4 w-4" />;
+  };
+
+  const getAlignIcon = (editor: any) => {
+    if (editor.isActive({ textAlign: "center" })) return <AlignCenter className="h-4 w-4" />;
+    if (editor.isActive({ textAlign: "right" })) return <AlignRight className="h-4 w-4" />;
+    if (editor.isActive({ textAlign: "justify" })) return <AlignJustify className="h-4 w-4" />;
+    return <AlignLeft className="h-4 w-4" />;
+  };
 
   const openMediaDialog = config?.object.media?.input
     ? () => { if (mediaDialogRef.current) mediaDialogRef.current.open() }
     : undefined;
 
-  const editor = useEditor({
+  const htmlWithAbsoluteUrls = async (html: string, config: Config) => {
+    return relativeToRawUrls(config.owner, config.repo, config.branch, html, isPrivate);
+  }
+
+  const htmlEditor = useEditor({
     immediatelyRender: true,
     extensions: [
       StarterKit.configure({
-        dropcursor: { width: 2}
+        dropcursor: { width: 2 }
       }),
       Image.extend({
         addAttributes() {
@@ -113,259 +157,327 @@ const EditComponent = forwardRef((props: any, ref) => {
       Underline
     ],
     content: "<p></p>",
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => onChange({ html: editor.getHTML() }),
     onCreate: async ({ editor }) => {
-      if (config && value) {
-        const initialContent = await relativeToRawUrls(config.owner, config.repo, config.branch, value, isPrivate); 
-        editor.commands.setContent(initialContent || "<p></p>");
+
+      if (config) {
+        const htmlRelativeUrl = rawToHtmlWithRelativeUrls(value.raw, field, config)
+        const htmlAbsoluteUrl = await htmlWithAbsoluteUrls(htmlRelativeUrl, config)
+        editor.commands.setContent(htmlAbsoluteUrl || "<p></p>");
       }
+      
       setContentReady(true);
     }
   });
 
   const handleMediaDialogSubmit = useCallback(async (images: string[]) => {
-    if (config && editor) {
+    if (config && htmlEditor) {
       const content = await Promise.all(images.map(async (image) => {
         const url = await getRawUrl(config.owner, config.repo, config.branch, image, isPrivate);
         return `<p><img src="${url}"></p>`;
       }));
-      editor.chain().focus().insertContent(content.join('\n')).run();
+      htmlEditor.chain().focus().insertContent(content.join('\n')).run();
     }
-  }, [config, editor, isPrivate]);
+  }, [config, htmlEditor, isPrivate]);
 
-  const getBlockIcon = (editor: any) => {
-    if (editor.isActive("heading", { level: 1 })) return <Heading1 className="h-4 w-4" />;
-    if (editor.isActive("heading", { level: 2 })) return <Heading2 className="h-4 w-4" />;
-    if (editor.isActive("heading", { level: 3 })) return <Heading3 className="h-4 w-4" />;
-    if (editor.isActive("bulletList")) return <List className="h-4 w-4" />;
-    if (editor.isActive("orderedList")) return <ListOrdered className="h-4 w-4" />;
-    if (editor.isActive("codeBlock")) return <Code className="h-4 w-4" />;
-    if (editor.isActive("blockquote")) return <Quote className="h-4 w-4" />;
-    return <Pilcrow className="h-4 w-4" />;
-  };
 
-  const getAlignIcon = (editor: any) => {
-    if (editor.isActive({ textAlign: "center" })) return <AlignCenter className="h-4 w-4" />;
-    if (editor.isActive({ textAlign: "right" })) return <AlignRight className="h-4 w-4" />;
-    if (editor.isActive({ textAlign: "justify" })) return <AlignJustify className="h-4 w-4" />;
-    return <AlignLeft className="h-4 w-4" />;
-  };
-  
+  const htmlTipTapEditor = <div>
+    <BubbleMenu editor={htmlEditor} tippyOptions={{ duration: 25, animation: "scale", maxWidth: "370px" }}>
+      <div className="p-1 rounded-md bg-popover border flex gap-x-[1px] items-center focus-visible:outline-none shadow-md" ref={bubbleMenuRef}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xxs"
+              className="gap-x-1"
+            >
+              {getBlockIcon(htmlEditor)}
+              <ChevronsUpDown className="w-3 h-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" portalProps={{ container: bubbleMenuRef.current }}>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setParagraph().run()} className="gap-x-1.5">
+              <Pilcrow className="h-4 w-4" />
+              Text
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setNode("heading", { level: 1 }).run()} className="gap-x-1.5">
+              <Heading1 className="h-4 w-4" />
+              Heading 1
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setNode("heading", { level: 2 }).run()} className="gap-x-1.5">
+              <Heading2 className="h-4 w-4" />
+              Heading 2
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setNode("heading", { level: 3 }).run()} className="gap-x-1.5">
+              <Heading3 className="h-4 w-4" />
+              Heading 3
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().toggleBulletList().run()} className="gap-x-1.5">
+              <List className="h-4 w-4" />
+              Bulleted list
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().toggleOrderedList().run()} className="gap-x-1.5">
+              <ListOrdered className="h-4 w-4" />
+              Numbered list
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setParagraph().toggleBlockquote().run()} className="gap-x-1.5">
+              <Quote className="h-4 w-4" />
+              Quote
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => htmlEditor.chain().focus().toggleCodeBlock().run()} className="gap-x-1.5">
+              <Code className="h-4 w-4" />
+              Code
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xxs"
+              className={cn("shrink-0", htmlEditor.isActive("link") ? "bg-muted" : "")}
+              onClick={() => setLinkUrl(htmlEditor.isActive("link") ? htmlEditor.getAttributes('link').href : "")}
+            >
+              <Link2 className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="p-1">
+            <div className="flex gap-x-1 items-center">
+              <Input
+                className="h-8 flex-1"
+                placeholder="e.g. http://pagescms.org"
+                value={linkUrl}
+                onChange={e => setLinkUrl(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xxs"
+                className="shrink-0"
+                onClick={() => linkUrl
+                  ? htmlEditor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run()
+                  : htmlEditor.chain().focus().extendMarkRange('link').unsetLink()
+                    .run()
+                }
+              >Link</Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xxs"
+                className="shrink-0"
+                onClick={() => htmlEditor.chain().focus().extendMarkRange('link').unsetLink()
+                  .run()}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+        {(htmlEditor.isActive("paragraph") || htmlEditor.isActive("heading")) &&
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xxs"
+                className="gap-x-1"
+              >
+                {getAlignIcon(htmlEditor)}
+                <ChevronsUpDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent portalProps={{ container: bubbleMenuRef.current }}>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setTextAlign("left").run()} className="gap-x-1.5">
+                <AlignLeft className="h-4 w-4" />
+                Align left
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setTextAlign("right").run()} className="gap-x-1.5">
+                <AlignRight className="h-4 w-4" />
+                Align right
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setTextAlign("center").run()} className="gap-x-1.5">
+                <AlignCenter className="h-4 w-4" />
+                Center
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().setTextAlign("justify").run()} className="gap-x-1.5">
+                <AlignJustify className="h-4 w-4" />
+                Justify
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().toggleBold().run()}
+          className={cn("shrink-0", htmlEditor.isActive("bold") ? "bg-muted" : "")}
+        >
+          <Bold className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().toggleItalic().run()}
+          className={cn("shrink-0", htmlEditor.isActive("italic") ? "bg-muted" : "")}
+        >
+          <Italic className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().toggleStrike().run()}
+          className={cn("shrink-0", htmlEditor.isActive("strike") ? "bg-muted" : "")}
+        >
+          <Strikethrough className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().toggleUnderline().run()}
+          className={cn("shrink-0", htmlEditor.isActive("underline") ? "bg-muted" : "")}
+        >
+          <UnderlineIcon className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().toggleCode().run()}
+          className={cn("shrink-0", htmlEditor.isActive("code") ? "bg-muted" : "")}
+        >
+          <Code className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xxs"
+          onClick={() => htmlEditor.chain().focus().unsetAllMarks().clearNodes().run()}
+          className={cn("shrink-0", htmlEditor.isActive("code") ? "bg-muted" : "")}
+        >
+          <RemoveFormatting className="h-4 w-4" />
+        </Button>
+        {htmlEditor.isActive("table") &&
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xxs"
+                className="gap-x-1"
+              >
+                <TableIcon className="h-4 w-4" />
+                <ChevronsUpDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" portalProps={{ container: bubbleMenuRef.current }}>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().addColumnAfter().run()}>Add a column</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().addRowAfter().run()}>Add a row</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().deleteColumn().run()}>
+                <span className="text-red-500">Delete column</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => htmlEditor.chain().focus().deleteRow().run()}>
+                <span className="text-red-500">Delete row</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      </div>
+    </BubbleMenu>
+    <EditorContent editor={htmlEditor} />
+  </div>
+
+  const { resolvedTheme } = useTheme();
+  const extensions = useMemo(() => {
+    let exts = [EditorView.lineWrapping];
+
+    if (field.options?.format == "html") {
+      exts.push(html());
+    } else {
+      exts.push(markdown({ base: markdownLanguage, codeLanguages: languages }));
+    }
+
+    return exts;
+  }, [field.options?.format]);
+
+  const rawEditor = <CodeMirror
+    value={value.raw ?? ""}
+    basicSetup={{
+      foldGutter: false,
+      lineNumbers: false,
+      highlightActiveLine: false,
+      searchKeymap: false,
+    }}
+    extensions={extensions}
+    onChange={(value) => { onChange({ raw: value }) }}
+    theme={resolvedTheme === "dark" ? githubDark : githubLight}
+  />
+
+  // used to preserve the raw data if nothing was changed (don't unnecessarily convert html to raw)
+  const [editModeDirty, setEditModeDirty] = useState(false)
+  const [editMode, setHtmlMode] = useState(EditMode.Html);
+
+  const onChange = ({ raw, html }: RichTextValue) => {
+    props.onChange({ raw, html })
+    setEditModeDirty(true)
+  }
+
+  const handleNewEditMode = async (newMode: EditMode, config: any) => {
+
+    if (!editModeDirty) return;
+
+    setEditModeDirty(false)
+
+    setContentReady(false)
+
+    if (editMode == EditMode.Html) {
+
+      let html = rawToHtmlWithRelativeUrls(value.raw, field, config)
+      html = await htmlWithAbsoluteUrls(html, config)
+
+      htmlEditor.commands.setContent(html)
+
+      onChange({ html })
+    } else {
+      onChange({ raw: htmlToRawWithRelativeUrls(value.html, field, config) })
+    }
+
+    setContentReady(true)
+
+  }
+
+  useEffect(() => {
+    if (!config) return;
+    handleNewEditMode(editMode, config)
+  }, [editMode]);
+
   return (
     <>
       <Skeleton className={cn("rounded-md h-[8.5rem]", isContentReady ? "hidden" : "")} />
-      <div className={!isContentReady ? "hidden" : ""}>
-        {editor && <BubbleMenu editor={editor} tippyOptions={{ duration: 25, animation: "scale", maxWidth: "370px" }}>
-          <div className="p-1 rounded-md bg-popover border flex gap-x-[1px] items-center focus-visible:outline-none shadow-md" ref={bubbleMenuRef}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xxs"
-                  className="gap-x-1"
-                >
-                  {getBlockIcon(editor)}
-                  <ChevronsUpDown className="w-3 h-3"/>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" portalProps={{container: bubbleMenuRef.current}}>
-                <DropdownMenuItem onClick={() => editor.chain().focus().setParagraph().run()} className="gap-x-1.5">
-                  <Pilcrow className="h-4 w-4" />
-                  Text
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().setNode("heading", { level: 1 }).run()} className="gap-x-1.5">
-                  <Heading1 className="h-4 w-4" />
-                  Heading 1
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().setNode("heading", { level: 2 }).run()} className="gap-x-1.5">
-                  <Heading2 className="h-4 w-4" />
-                  Heading 2
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().setNode("heading", { level: 3 }).run()} className="gap-x-1.5">
-                  <Heading3 className="h-4 w-4" />
-                  Heading 3
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().toggleBulletList().run()} className="gap-x-1.5">
-                  <List className="h-4 w-4" />
-                  Bulleted list
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().toggleOrderedList().run()} className="gap-x-1.5">
-                  <ListOrdered className="h-4 w-4" />
-                  Numbered list
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().setParagraph().toggleBlockquote().run()} className="gap-x-1.5">
-                  <Quote className="h-4 w-4" />
-                  Quote
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => editor.chain().focus().toggleCodeBlock().run()} className="gap-x-1.5">
-                  <Code className="h-4 w-4" />
-                  Code
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xxs"
-                  className={cn("shrink-0", editor.isActive("link") ? "bg-muted" : "")}
-                  onClick={() => setLinkUrl(editor.isActive("link") ? editor.getAttributes('link').href : "")}
-                >
-                  <Link2 className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-1">
-                <div className="flex gap-x-1 items-center">
-                  <Input
-                    className="h-8 flex-1"
-                    placeholder="e.g. http://pagescms.org"
-                    value={linkUrl}
-                    onChange={e => setLinkUrl(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xxs"
-                    className="shrink-0"
-                    onClick={() => linkUrl
-                      ? editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run()
-                      : editor.chain().focus().extendMarkRange('link').unsetLink()
-                      .run()
-                    }
-                  >Link</Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xxs"
-                    className="shrink-0"
-                    onClick={() => editor.chain().focus().extendMarkRange('link').unsetLink()
-                      .run()}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            {(editor.isActive("paragraph") || editor.isActive("heading")) && 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xxs"
-                    className="gap-x-1"
-                  >
-                    {getAlignIcon(editor)}
-                    <ChevronsUpDown className="w-3 h-3"/>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent portalProps={{container: bubbleMenuRef.current}}>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().setTextAlign("left").run()} className="gap-x-1.5">
-                    <AlignLeft className="h-4 w-4" />
-                    Align left
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().setTextAlign("right").run()} className="gap-x-1.5">
-                    <AlignRight className="h-4 w-4" />
-                    Align right
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().setTextAlign("center").run()} className="gap-x-1.5">
-                    <AlignCenter className="h-4 w-4" />
-                    Center
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().setTextAlign("justify").run()} className="gap-x-1.5">
-                    <AlignJustify className="h-4 w-4" />
-                    Justify
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              className={cn("shrink-0", editor.isActive("bold") ? "bg-muted" : "")}
-            >
-              <Bold className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={cn("shrink-0", editor.isActive("italic") ? "bg-muted" : "")}
-            >
-              <Italic className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().toggleStrike().run()}
-              className={cn("shrink-0", editor.isActive("strike") ? "bg-muted" : "")}
-            >
-              <Strikethrough className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={cn("shrink-0", editor.isActive("underline") ? "bg-muted" : "")}
-            >
-              <UnderlineIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().toggleCode().run()}
-              className={cn("shrink-0", editor.isActive("code") ? "bg-muted" : "")}
-            >
-              <Code className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xxs"
-              onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}
-              className={cn("shrink-0", editor.isActive("code") ? "bg-muted" : "")}
-            >
-              <RemoveFormatting className="h-4 w-4" />
-            </Button>
-            {editor.isActive("table") && 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xxs"
-                    className="gap-x-1"
-                  >
-                    <TableIcon className="h-4 w-4" />
-                    <ChevronsUpDown className="w-3 h-3"/>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" portalProps={{container: bubbleMenuRef.current}}>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().addColumnAfter().run()}>Add a column</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().addRowAfter().run()}>Add a row</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => editor.chain().focus().deleteColumn().run()}>
-                    <span className="text-red-500">Delete column</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => editor.chain().focus().deleteRow().run()}>
-                    <span className="text-red-500">Delete row</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-          </div>
-        </BubbleMenu>}
-        <EditorContent editor={editor} />
-        <MediaDialog ref={mediaDialogRef} selected={[]} onSubmit={handleMediaDialogSubmit}/>
-      </div>
+      <div className={!isContentReady ? "hidden" : "relative"}>
+        <div className={editMode != EditMode.Raw ? "hidden" : "relative"}>{rawEditor}</div>
+        <div className={editMode != EditMode.Html ? "hidden" : "relative"}>{htmlEditor && htmlTipTapEditor}</div>
+        <MediaDialog ref={mediaDialogRef} selected={[]} onSubmit={handleMediaDialogSubmit} />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-x-2 m-2 absolute top-0 right-0 rounded-sm"
+          onClick={() => setHtmlMode(ToggleEditMode(editMode))}
+        >
+          {editMode == EditMode.Html ?
+            <CodeXml className="inline-block w-4 h-4" /> :
+            <Type className="w-4 h-4" />
+          }
+          <span className="hidden md:block ">{editMode == EditMode.Html ? "Edit Raw" : "Edit Text"}</span>
+        </Button>
+      </div >
     </>
   )
 });
